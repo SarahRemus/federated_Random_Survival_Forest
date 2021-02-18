@@ -6,4 +6,10 @@ matplotlib
 jsonpickle
 joblib
 pyyaml
-pandas
+pandas~=1.2.0
+scikit-survival
+eli5~=0.11.0
+scikit-learn~=0.23.2
+PyYAML~=5.4.1
+statistics~=1.0.3.5
+matplotlib~=3.3.4

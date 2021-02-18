@@ -6,9 +6,6 @@ import joblib
 import jsonpickle
 import pandas as pd
 import yaml
-from sklearn.metrics import mean_squared_error, r2_score, explained_variance_score, max_error, mean_absolute_error, \
-    mean_absolute_percentage_error, median_absolute_error
-from sklearn.model_selection import train_test_split
 
 from app.algo import Coordinator, Client
 
@@ -41,28 +38,25 @@ class AppLogic:
         # === Custom ===
         self.INPUT_DIR = "/mnt/input"
         self.OUTPUT_DIR = "/mnt/output"
-
+        self.data = None
         self.client = None
         self.input = None
-        self.sep = None
-        self.label_column = None
-        self.test_size = None
-        self.random_state = None
+        self.dur_column = None
+        self.event_column = None
         self.X = None
         self.y = None
         self.X_test = None
         self.y_test = None
-        self.epsilon = None
+        self.features = None
+        self.global_rsf = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)['fc_linear_regression']
+            config = yaml.load(f, Loader=yaml.FullLoader)['fc_rsf']
             self.input = config['files']['input']
-            self.sep = config['files']['sep']
-            self.label_column = config['files']['label_column']
-            self.epsilon = config['differential_privacy']['epsilon']
-            self.test_size = config['evaluation']['test_size']
-            self.random_state = config['evaluation']['random_state']
+            #self.sep = config['files']['sep']
+            self.dur_column = config['parameters']['duration_col']
+            self.event_column = config['parameters']['event_col']
 
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
         print(f'Read config file.', flush=True)
@@ -87,6 +81,48 @@ class AppLogic:
         # This method is called when data is requested
         self.status_available = False
         return self.data_outgoing
+
+    def write_results(self, global_rsf):
+        """
+        Writes the results of global_rsf to the output_directory.
+        :param global_rsf: Global rsf calculated from the local rsf of the clients
+        :param output_dir: String of the output directory. Usually /mnt/output
+        :return: None
+        """
+        try:
+            print("[IO]       Write results to output folder:")
+            #write_results_for_local_model()
+            file_write = open(self.OUTPUT_DIR + '/evaluation_result.txt', 'x')
+            file_write.write("Evaluation Results: ")
+            file_write.write("\n\nc_index calculated on the test data from this side:\n")
+            #file_write.write(str(redis_get(RedisVar.C_INDEX)))
+
+            file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
+            #file_write.write(str(redis_get(RedisVar.FEATURE_IMPORTANCE)))
+
+            file_write.write("\n\nglobal cindex:\n")
+            #if redis_get(RedisVar.COORDINATOR):
+            #    global_cindex = redis_get(RedisVar.GLOBAL_C_INDEX)
+            #    file_write.write(str(global_cindex))
+
+            #if redis_get(RedisVar.CLIENT):
+                # TDOD: something is not write here, gives string version of model and not cindex
+            #    global_cindex_no_pickle = pickle.loads(redis_get(RedisVar.GLOBAL_C_INDEX_REQUEST))
+            #    file_write.write(str(global_cindex_no_pickle))
+            file_write.close()
+
+            with open(self.OUTPUT_DIR + '/global_model.pickle', 'wb') as handle:
+                jsonpickle.encode(global_rsf)
+
+        except Exception as e:
+            print('[IO]      Could not write result file.', e)
+        try:
+            file_read = open(self.OUTPUT_DIR + '/evaluation_result.txt', 'r')
+            content = file_read.read()
+            print(content)
+            file_read.close()
+        except Exception as e:
+            print('[IO]      File could not be read. There might be something wrong.', e)
 
     def app_flow(self):
         # This method contains a state machine for the client and coordinator instance
@@ -114,44 +150,49 @@ class AppLogic:
                         self.client = Coordinator()
                     else:
                         self.client = Client()
+
             if state == state_read_input:
                 print('[CLIENT] Read input and config')
                 self.read_config()
 
                 numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-                self.X = pd.read_csv(self.INPUT_DIR + "/" + self.input, sep=self.sep).select_dtypes(
-                    include=numerics).dropna()
-                self.y = self.X.loc[:, self.label_column]
-                self.X = self.X.drop(self.label_column, axis=1)
-
-                if self.test_size is not None:
-                    self.X, self.X_test, self.y, self.y_test = train_test_split(self.X, self.y,
-                                                                                test_size=self.test_size,
-                                                                                random_state=self.random_state)
+                self.data = pd.read_csv(self.INPUT_DIR + "/" + self.input)
                 state = state_local_computation
-            if state == state_local_computation:
-                print("[CLIENT] Perform local computation")
-                self.progress = 'local computation'
-                xtx, xty = self.client.local_computation(self.X, self.y)
 
-                data_to_send = jsonpickle.encode([xtx, xty])
+            if state == state_local_computation:
+                print("[CLIENT] *****************Perform local computation")
+                self.progress = 'local computation'
+                rsf, Xt, y, X_test, y_test, features = self.client.calculate_local_rsf(self.data, self.dur_column, self.event_column)
+
+                self.X = Xt
+                self.y = y
+                self.X_test = X_test
+                self.y_test = y_test
+                self.features = features
+
+                data_to_send = jsonpickle.encode(rsf)
 
                 if self.coordinator:
                     self.data_incoming.append(data_to_send)
+                    print('data incomming coordinator')
+                    #print(self.data_incoming)
                     state = state_global_aggregation
                 else:
                     self.data_outgoing = data_to_send
                     self.status_available = True
                     state = state_wait_for_aggregation
                     print(f'[CLIENT] Sending computation data to coordinator', flush=True)
+
+            #TODO
             if state == state_wait_for_aggregation:
                 print("[CLIENT] Wait for aggregation")
                 self.progress = 'wait for aggregation'
                 if len(self.data_incoming) > 0:
                     print("[CLIENT] Received aggregation data from coordinator.")
-                    global_coefs = jsonpickle.decode(self.data_incoming[0])
+                    global_rsf = jsonpickle.decode(self.data_incoming[0])
                     self.data_incoming = []
-                    self.client.set_coefs(global_coefs)
+                    self.client.set_global_rsf(global_rsf)
+                    self.global_rsf = global_rsf
                     state = state_writing_results
 
             # GLOBAL PART
@@ -160,41 +201,24 @@ class AppLogic:
                 print("[CLIENT] Global computation")
                 self.progress = 'computing...'
                 if len(self.data_incoming) == len(self.clients):
-                    data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
+                    local_rsf_of_all_clients = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     self.data_incoming = []
-                    aggregated_beta = self.client.aggregate_beta(data)
-                    self.client.set_coefs(aggregated_beta)
-                    data_to_broadcast = jsonpickle.encode(aggregated_beta)
+                    aggregated_rsf = self.client.calculate_global_rsf(local_rsf_of_all_clients)
+                    #self.client.set_coefs(aggregated_beta)
+                    data_to_broadcast = jsonpickle.encode(aggregated_rsf)
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
                     state = state_writing_results
                     print(f'[CLIENT] Broadcasting computation data to clients', flush=True)
+
             if state == state_writing_results:
                 print("[CLIENT] Writing results")
                 # now you can save it to a file
-                joblib.dump(self.client, self.OUTPUT_DIR + '/model.pkl')
-                model = self.client
-
-                if self.test_size is not None:
-                    # Make predictions using the testing set
-                    y_pred = model.predict(self.X_test)
-
-                    # The mean squared error
-                    scores = {
-                        "r2_score": [r2_score(self.y_test, y_pred)],
-                        "explained_variance_score": [explained_variance_score(self.y_test, y_pred)],
-                        "max_error": [max_error(self.y_test, y_pred)],
-                        "mean_absolute_error": [mean_absolute_error(self.y_test, y_pred)],
-                        "mean_squared_error": [mean_squared_error(self.y_test, y_pred)],
-                        "mean_absolute_percentage_error": [mean_absolute_percentage_error(self.y_test, y_pred)],
-                        "median_absolute_error": [median_absolute_error(self.y_test, y_pred)]
-                    }
-
-                    scores_df = pd.DataFrame.from_dict(scores).T
-                    scores_df = scores_df.rename({0: "score"}, axis=1)
-                    scores_df.to_csv(self.OUTPUT_DIR + "/scores.csv")
-
+                #joblib.dump(self.client, self.OUTPUT_DIR + '/model.pkl')
+                #model = self.client
+                self.write_results(self.global_rsf)
                 state = state_finishing
+
             if state == state_finishing:
                 print("[CLIENT] Finishing")
                 self.progress = 'finishing...'

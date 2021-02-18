@@ -1,58 +1,97 @@
 import numpy as np
-from sklearn.linear_model import LinearRegression
+import numpy
+from sklearn.model_selection import train_test_split
+import pickle
+import numpy as np
+from sksurv.ensemble import RandomSurvivalForest
+import eli5
+from eli5.sklearn import PermutationImportance
+import statistics
+from sksurv.metrics import integrated_brier_score
+import matplotlib.pyplot as plt
 
 
-class Client(LinearRegression):
+class Client:
 
-    coef_ = None
-    intercept_ = None
+    global_rsf_ = None
 
-    def set_coefs(self, coef):
-        self.coef_ = coef[1:]
-        self.intercept_ = coef[0]
+    def set_global_rsf(self, global_rsf):
+        self.global_rsf_ = global_rsf[0]
 
-    def local_computation(self, X, y, eps=None):
 
-        def add_dp(org_matrix, epsilon):
-            if eps:
-                sensitivity = np.max(np.sum(np.abs(org_matrix), axis=0))
-                mean = 0
-                lambda_laplace = sensitivity / epsilon
-                noise_matrix = np.random.laplace(mean, lambda_laplace, size=org_matrix.shape)
+    def calculate_local_rsf(self, data, duration_col, event_col):
+        """
+        Calculate the local rsf of a client
+        :return: the local rsf
+        """
 
-                return org_matrix + noise_matrix
-            else:
-                return org_matrix
+        if data is None:
+            print('[ALGO]     No data available')
+            return None
+        else:
+            # TODO: currently hard coded, should be input
+            print("[ALGO]     calculate local rsf")
+            files = data
+            Xt, y, features = bring_data_to_right_format(files, event_col, duration_col)
+            # TODO: remove random state later
+            random_state = 20
 
-        column_one = np.ones((X.shape[0], 1)).astype(np.uint8)
-        X = np.concatenate((column_one, X), axis=1)
-        XT_X_matrix = add_dp(np.dot(X.T, X), epsilon=eps)
-        XT_y_vector = add_dp(np.dot(X.T, y), epsilon=eps)
+            X_train, X_test, y_train, y_test = train_test_split(
+                Xt, y, test_size=0.25, random_state=random_state)
 
-        return XT_X_matrix, XT_y_vector
+            rsf = RandomSurvivalForest(n_estimators=1000,
+                                       min_samples_split=10,
+                                       min_samples_leaf=15,
+                                       max_features="sqrt",
+                                       n_jobs=-1,
+                                       oob_score=True
+                                       )
+            rsf.fit(X_train, y_train)
+            print("[ALGO]     local rsf: " + str(rsf))
+            #evaluation_on_local_model(rsf, Xt, y, X_test, y_test, y_train)
+            return rsf, Xt, y, X_test, y_test, features
 
-    def predict(self, X):
-        return np.dot(X, self.coef_) + self.intercept_
 
 
 class Coordinator(Client):
 
-    def aggregate_matrices_(self, matrices):
-        matrix = matrices[0]
-        for i in range(1, len(matrices)):
-            matrix = np.add(matrix, matrices[i])
-        matrix_global = matrix
+    def calculate_global_rsf(self, locally_trained_forests):
+        """
+        Calculates the global rsf of the data of all clients.
+        :return: None
+        """
+        print('[ALGO]     Calculate Global RSF')
+        print('[ALGO]     length locally_trained_forests ' + str(len(locally_trained_forests)))
+        firstTree = locally_trained_forests[0]
+        remaining_trees = locally_trained_forests.copy()
+        remaining_trees.remove(firstTree)
 
-        return matrix_global
+        for forest in remaining_trees:
+            firstTree.estimators_ = firstTree.estimators_ + forest.estimators_
+            firstTree.n_estimators = len(firstTree.estimators_)
+        global_rsf = firstTree
+        print(global_rsf)
+        return global_rsf
 
-    def aggregate_beta(self, local_results):
-        XT_X_matrices = [client[0] for client in local_results]
-        XT_X_matrix_global = self.aggregate_matrices_(XT_X_matrices)
+def bring_data_to_right_format(data, event, time):
+    # read data and reformat so sckit-survival can work with it
 
-        XT_y_vectors = [client[1] for client in local_results]
-        XT_y_vector_global = self.aggregate_matrices_(XT_y_vectors)
+    df = data
+    # Assign True/ False variables as event-occurs Data, not 1/0
+    df[event] = df[event].astype('bool')
 
-        XT_X_matrix_inverse = np.linalg.inv(XT_X_matrix_global)
-        beta_vector = np.dot(XT_X_matrix_inverse, XT_y_vector_global)
+    # create nparray with event and time data as tuples
+    y = df[[event, time]].copy()
+    s = y.dtypes
+    y_finished = np.array([tuple(x) for x in y.values], dtype=list(zip(s.index, s)))
 
-        return beta_vector
+    headers = data.columns.values.tolist()
+    headers.remove(event)
+    headers.remove(time)
+
+    # create nparray with the features values
+    x = df[headers].copy()
+    x_finished = x.to_numpy().astype('float64')
+    features = headers
+
+    return x_finished, y_finished, features
