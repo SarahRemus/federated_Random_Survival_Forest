@@ -1,3 +1,4 @@
+import jsonpickle
 import numpy as np
 import numpy
 from sklearn.model_selection import train_test_split
@@ -51,7 +52,31 @@ class Client:
             #evaluation_on_local_model(rsf, Xt, y, X_test, y_test, y_train)
             return rsf, Xt, y, X_test, y_test, features
 
+    def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names):
+        try:
+            # TODO: this call is wierd
+            global_rsf = jsonpickle.decode(global_rsf_pickled)
+            cindex = self.calculate_cindex(global_rsf, X_test, y_test)
+            feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test, feature_names)
+            # brier_score = calculate_integrated_brier_score(global_rsf, Xt, y)
+            return cindex, feature_importance_as_dataframe
 
+        except Exception as e:
+            print('[ALGO]    evaluate_global_model_with_local_test_data!', e)
+
+    def calculate_feature_importance(self, global_rsf, X_test, y_test, feature_names):
+        print("[ALGO]     calculate feature importance")
+        # TODO: needs more iterations but is currently taking to long
+        perm = PermutationImportance(global_rsf, n_iter=2)
+        perm.fit(X_test, y_test)
+        feature_importance_as_dataframe = eli5.explain_weights_df(perm, feature_names=feature_names)
+        print("\n" + str(feature_importance_as_dataframe))
+        return feature_importance_as_dataframe
+
+    def calculate_cindex(self, global_rsf, X_test, y_test):
+        cindex = global_rsf.score(X_test, y_test)
+        print("[ALGO]     cindex on global model with local test data: " + str(cindex))
+        return cindex
 
 class Coordinator(Client):
 
@@ -72,6 +97,20 @@ class Coordinator(Client):
         global_rsf = firstTree
         print(global_rsf)
         return global_rsf
+
+    def calculate_global_c_index(self, all_cindeces):
+        """
+        Calculates the global evaluation of the data of all clients.
+        :return: None
+        """
+        print('[ALGO]     Calculate Global c-index')
+
+        print(f'[ALGO]     all c-indeces: {all_cindeces}')
+
+        mean_c_index = statistics.mean(all_cindeces)
+
+        print("[ALGO]     global cindex: " + str(mean_c_index))
+        return mean_c_index
 
 def bring_data_to_right_format(data, event, time):
     # read data and reformat so sckit-survival can work with it

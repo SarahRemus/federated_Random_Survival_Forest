@@ -1,3 +1,4 @@
+import pickle
 import shutil
 import threading
 import time
@@ -49,6 +50,9 @@ class AppLogic:
         self.y_test = None
         self.features = None
         self.global_rsf = None
+        self.cindex_on_global_model = None
+        self.feature_importance_on_global_model = None
+        self.global_c_index = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
@@ -95,24 +99,25 @@ class AppLogic:
             file_write = open(self.OUTPUT_DIR + '/evaluation_result.txt', 'x')
             file_write.write("Evaluation Results: ")
             file_write.write("\n\nc_index calculated on the test data from this side:\n")
-            #file_write.write(str(redis_get(RedisVar.C_INDEX)))
+            file_write.write(str(self.cindex_on_global_model))
 
             file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
-            #file_write.write(str(redis_get(RedisVar.FEATURE_IMPORTANCE)))
+            file_write.write(str(self.feature_importance_on_global_model))
 
             file_write.write("\n\nglobal cindex:\n")
-            #if redis_get(RedisVar.COORDINATOR):
-            #    global_cindex = redis_get(RedisVar.GLOBAL_C_INDEX)
+            file_write.write(str(self.global_c_index))
+
+            #if self.coordinator:
+            #    global_cindex = self.global_c_index
             #    file_write.write(str(global_cindex))
 
-            #if redis_get(RedisVar.CLIENT):
-                # TDOD: something is not write here, gives string version of model and not cindex
-            #    global_cindex_no_pickle = pickle.loads(redis_get(RedisVar.GLOBAL_C_INDEX_REQUEST))
+            #if self.client:
+            #    global_cindex_no_pickle = self.global_c_index
             #    file_write.write(str(global_cindex_no_pickle))
             file_write.close()
 
             with open(self.OUTPUT_DIR + '/global_model.pickle', 'wb') as handle:
-                jsonpickle.encode(global_rsf)
+                pickle.dump(self.global_rsf, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         except Exception as e:
             print('[IO]      Could not write result file.', e)
@@ -133,8 +138,11 @@ class AppLogic:
         state_local_computation = 3
         state_wait_for_aggregation = 4
         state_global_aggregation = 5
-        state_writing_results = 6
-        state_finishing = 7
+        state_evaluation_of_global_model = 6
+        state_waiting_for_evaluation = 7
+        state_aggregation_of_evaluation = 8
+        state_writing_results = 9
+        state_finishing = 10
 
         # Initial state
         state = state_initializing
@@ -160,7 +168,7 @@ class AppLogic:
                 state = state_local_computation
 
             if state == state_local_computation:
-                print("[CLIENT] *****************Perform local computation")
+                print("[CLIENT] Perform local computation")
                 self.progress = 'local computation'
                 rsf, Xt, y, X_test, y_test, features = self.client.calculate_local_rsf(self.data, self.dur_column, self.event_column)
 
@@ -183,7 +191,6 @@ class AppLogic:
                     state = state_wait_for_aggregation
                     print(f'[CLIENT] Sending computation data to coordinator', flush=True)
 
-            #TODO
             if state == state_wait_for_aggregation:
                 print("[CLIENT] Wait for aggregation")
                 self.progress = 'wait for aggregation'
@@ -193,6 +200,49 @@ class AppLogic:
                     self.data_incoming = []
                     self.client.set_global_rsf(global_rsf)
                     self.global_rsf = global_rsf
+                    state = state_evaluation_of_global_model
+
+            if state == state_evaluation_of_global_model:
+                ev_result = []
+                if self.coordinator:
+                    print('[STATUS]   evaluate global model on local test data COORDINATOR')
+                    global_rsf_pickled = jsonpickle.encode(self.global_rsf)
+                    cindex_on_global_model, feature_importance_on_global_model\
+                        = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test, self.y_test, self.features)
+                    ev_result = [cindex_on_global_model, feature_importance_on_global_model]
+
+                if self.client:
+                    print('[STATUS]   evaluate global model on local test data CLIENT')
+                    global_rsf_pickled = jsonpickle.encode(self.global_rsf)
+                    cindex_on_global_model, feature_importance_on_global_model \
+                        = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
+                                                                                 self.y_test, self.features)
+                    ev_result = [cindex_on_global_model, feature_importance_on_global_model]
+
+                self.cindex_on_global_model = ev_result[0]
+                self.feature_importance_on_global_model = ev_result[1]
+
+                #data_to_send = jsonpickle.encode(ev_result)
+                data_to_send = pickle.dumps(ev_result)
+
+                if self.coordinator:
+                    self.data_incoming.append(data_to_send)
+                    state = state_aggregation_of_evaluation
+                else:
+                    self.data_outgoing = data_to_send
+                    self.status_available = True
+                    state = state_waiting_for_evaluation
+                    print(f'[CLIENT] Sending EVALUATION data to coordinator', flush=True)
+
+            if state == state_waiting_for_evaluation:
+                print("[CLIENT] Wait for EVALUATION aggregation")
+                self.progress = 'wait for aggregation'
+                if len(self.data_incoming) > 0:
+                    print("[CLIENT] Received EVALUATION aggregation data from coordinator.")
+                    global_cindex_here = jsonpickle.decode(self.data_incoming[0])
+                    self.data_incoming = []
+                    #self.client.set_global_rsf(global_rsf)
+                    self.global_cindex = global_cindex_here
                     state = state_writing_results
 
             # GLOBAL PART
@@ -204,12 +254,39 @@ class AppLogic:
                     local_rsf_of_all_clients = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     self.data_incoming = []
                     aggregated_rsf = self.client.calculate_global_rsf(local_rsf_of_all_clients)
+                    self.global_rsf = aggregated_rsf
                     #self.client.set_coefs(aggregated_beta)
                     data_to_broadcast = jsonpickle.encode(aggregated_rsf)
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
-                    state = state_writing_results
+                    state = state_evaluation_of_global_model
                     print(f'[CLIENT] Broadcasting computation data to clients', flush=True)
+
+            if state == state_aggregation_of_evaluation:
+                print("[CLIENT] Global evaluation")
+                self.progress = 'evaluating...'
+                if len(self.data_incoming) == len(self.clients):
+                    print("1")
+                    #print(self.data_incoming)
+                    #TODO: something is wrong with the json pickle, should be solved with normal pickle
+                    #local_c_of_all_clients = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
+                    local_ev_of_all_clients = [pickle.loads(client_data) for client_data in self.data_incoming]
+                    local_c_of_all_clients = []
+                    for i in local_ev_of_all_clients:
+                        local_c_of_all_clients.append(i[0])
+                    print("2")
+                    print("local of all clients: " + str(local_c_of_all_clients))
+                    self.data_incoming = []
+                    print("3")
+                    aggregated_c = self.client.calculate_global_c_index(local_c_of_all_clients)
+                    print("4")
+                    self.global_c_index = aggregated_c
+                    # self.client.set_coefs(aggregated_beta)
+                    data_to_broadcast = jsonpickle.encode(aggregated_c)
+                    self.data_outgoing = data_to_broadcast
+                    self.status_available = True
+                    state = state_writing_results
+                    print(f'[CLIENT] Broadcasting EVALUATION data to clients', flush=True)
 
             if state == state_writing_results:
                 print("[CLIENT] Writing results")
