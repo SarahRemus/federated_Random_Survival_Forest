@@ -101,8 +101,8 @@ class AppLogic:
             file_write.write("\n\nc_index calculated on the test data from this side:\n")
             file_write.write(str(self.cindex_on_global_model))
 
-            file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
-            file_write.write(str(self.feature_importance_on_global_model))
+            #file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
+            #file_write.write(str(self.feature_importance_on_global_model))
 
             file_write.write("\n\nglobal cindex:\n")
             file_write.write(str(self.global_c_index))
@@ -116,8 +116,14 @@ class AppLogic:
             #    file_write.write(str(global_cindex_no_pickle))
             file_write.close()
 
+
+
             with open(self.OUTPUT_DIR + '/global_model.pickle', 'wb') as handle:
                 pickle.dump(self.global_rsf, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+            # feature importance
+            fi = self.feature_importance_on_global_model
+            fi.to_csv(self.OUTPUT_DIR + '/feature_importance.csv')
 
         except Exception as e:
             print('[IO]      Could not write result file.', e)
@@ -206,18 +212,17 @@ class AppLogic:
                 ev_result = []
                 if self.coordinator:
                     print('[STATUS]   evaluate global model on local test data COORDINATOR')
+                    print('global rsf type: ')
+                    print(type(self.global_rsf))
                     global_rsf_pickled = jsonpickle.encode(self.global_rsf)
-                    cindex_on_global_model, feature_importance_on_global_model\
-                        = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test, self.y_test, self.features)
-                    ev_result = [cindex_on_global_model, feature_importance_on_global_model]
+                    print('could pickle ')
+                    ev_result = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test, self.y_test, self.features)
 
                 if self.client:
                     print('[STATUS]   evaluate global model on local test data CLIENT')
                     global_rsf_pickled = jsonpickle.encode(self.global_rsf)
-                    cindex_on_global_model, feature_importance_on_global_model \
-                        = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
+                    ev_result= self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
                                                                                  self.y_test, self.features)
-                    ev_result = [cindex_on_global_model, feature_importance_on_global_model]
 
                 self.cindex_on_global_model = ev_result[0]
                 self.feature_importance_on_global_model = ev_result[1]

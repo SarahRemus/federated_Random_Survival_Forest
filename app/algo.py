@@ -1,9 +1,9 @@
 import jsonpickle
-import numpy as np
 import numpy
 from sklearn.model_selection import train_test_split
 import pickle
 import numpy as np
+import pandas as pd
 from sksurv.ensemble import RandomSurvivalForest
 import eli5
 from eli5.sklearn import PermutationImportance
@@ -35,10 +35,10 @@ class Client:
             files = data
             Xt, y, features = bring_data_to_right_format(files, event_col, duration_col)
             # TODO: remove random state later
-            random_state = 20
+            #random_state = 20
 
             X_train, X_test, y_train, y_test = train_test_split(
-                Xt, y, test_size=0.25, random_state=random_state)
+                Xt, y, test_size=0.25)
 
             rsf = RandomSurvivalForest(n_estimators=1000,
                                        min_samples_split=10,
@@ -54,10 +54,10 @@ class Client:
 
     def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names):
         try:
-            # TODO: this call is wierd
             global_rsf = jsonpickle.decode(global_rsf_pickled)
             cindex = self.calculate_cindex(global_rsf, X_test, y_test)
             feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test, feature_names)
+            #feature_importance_as_dataframe = pd.DataFrame(['empty'], columns = ['Empty'])
             # brier_score = calculate_integrated_brier_score(global_rsf, Xt, y)
             return cindex, feature_importance_as_dataframe
 
