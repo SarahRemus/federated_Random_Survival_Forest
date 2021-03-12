@@ -1,5 +1,6 @@
 import jsonpickle
 import numpy
+import sksurv
 from sklearn.model_selection import train_test_split
 import pickle
 import numpy as np
@@ -13,14 +14,12 @@ import matplotlib.pyplot as plt
 
 
 class Client:
-
     global_rsf_ = None
 
     def set_global_rsf(self, global_rsf):
         self.global_rsf_ = global_rsf[0]
 
-
-    def calculate_local_rsf(self, data, duration_col, event_col):
+    def calculate_local_rsf(self, data, data_test, duration_col, event_col):
         """
         Calculate the local rsf of a client
         :return: the local rsf
@@ -32,13 +31,17 @@ class Client:
         else:
             # TODO: currently hard coded, should be input
             print("[ALGO]     calculate local rsf")
+            print("data head")
+            print(data.head())
+            print("test data head")
+            print(data_test.head())
             files = data
             Xt, y, features = bring_data_to_right_format(files, event_col, duration_col)
+            X_test, y_test, features = bring_data_to_right_format(data_test, event_col, duration_col)
             # TODO: remove random state later
-            #random_state = 20
+            # random_state = 20
 
-            X_train, X_test, y_train, y_test = train_test_split(
-                Xt, y, test_size=0.25)
+            # X_train, X_test, y_train, y_test = train_test_split(Xt, y, test_size=0.25)
 
             rsf = RandomSurvivalForest(n_estimators=1000,
                                        min_samples_split=10,
@@ -47,17 +50,23 @@ class Client:
                                        n_jobs=-1,
                                        oob_score=True
                                        )
-            rsf.fit(X_train, y_train)
+            rsf.fit(Xt, y)
+
+
+
             print("[ALGO]     local rsf: " + str(rsf))
-            #evaluation_on_local_model(rsf, Xt, y, X_test, y_test, y_train)
+
+            self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
+            # evaluation_on_local_model(rsf, Xt, y, X_test, y_test, y_train)
             return rsf, Xt, y, X_test, y_test, features
 
     def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names):
         try:
             global_rsf = jsonpickle.decode(global_rsf_pickled)
             cindex = self.calculate_cindex(global_rsf, X_test, y_test)
-            feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test, feature_names)
-            #feature_importance_as_dataframe = pd.DataFrame(['empty'], columns = ['Empty'])
+            feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test,
+                                                                                feature_names)
+            # feature_importance_as_dataframe = pd.DataFrame(['empty'], columns = ['Empty'])
             # brier_score = calculate_integrated_brier_score(global_rsf, Xt, y)
             return cindex, feature_importance_as_dataframe
 
@@ -77,6 +86,23 @@ class Client:
         cindex = global_rsf.score(X_test, y_test)
         print("[ALGO]     cindex on global model with local test data: " + str(cindex))
         return cindex
+
+    def calculate_cindex_and_concordant_pairs(self, rsf, X_test, y_test):
+        print("************************************************************************************")
+        print("[TEST C-INDEX] local cindex: " + str(rsf.score(X_test, y_test)))
+
+        prediction_for_test = rsf.predict(X_test)
+
+        event_indicator = [i[0] for i in y_test]
+
+        event_time = [i[1] for i in y_test]
+
+        cindex, concordant, discordant, risk, time = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
+
+        print("[TEST C-INDEX] local cindex from prediction: " + str(cindex))
+        print("[TEST C-INDEX] concordant pairs: " + str(concordant))
+        print("[TEST C-INDEX] discordant pairs: " + str(discordant))
+
 
 class Coordinator(Client):
 
@@ -111,6 +137,7 @@ class Coordinator(Client):
 
         print("[ALGO]     global cindex: " + str(mean_c_index))
         return mean_c_index
+
 
 def bring_data_to_right_format(data, event, time):
     # read data and reformat so sckit-survival can work with it

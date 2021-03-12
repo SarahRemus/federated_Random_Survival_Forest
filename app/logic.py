@@ -40,8 +40,10 @@ class AppLogic:
         self.INPUT_DIR = "/mnt/input"
         self.OUTPUT_DIR = "/mnt/output"
         self.data = None
+        self.data_test = None
         self.client = None
         self.input = None
+        self.input_test = None
         self.dur_column = None
         self.event_column = None
         self.X = None
@@ -58,6 +60,8 @@ class AppLogic:
         with open(self.INPUT_DIR + '/config.yml') as f:
             config = yaml.load(f, Loader=yaml.FullLoader)['fc_rsf']
             self.input = config['files']['input']
+            self.input_test = config['files']['input_test']
+            print("CONFIG " + str(self.input_test))
             #self.sep = config['files']['sep']
             self.dur_column = config['parameters']['duration_col']
             self.event_column = config['parameters']['event_col']
@@ -171,12 +175,16 @@ class AppLogic:
 
                 numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
                 self.data = pd.read_csv(self.INPUT_DIR + "/" + self.input)
+                self.data_test = pd.read_csv(self.INPUT_DIR + "/" + self.input_test)
+                print('state read input')
+                print(self.data_test.head())
                 state = state_local_computation
 
             if state == state_local_computation:
                 print("[CLIENT] Perform local computation")
                 self.progress = 'local computation'
-                rsf, Xt, y, X_test, y_test, features = self.client.calculate_local_rsf(self.data, self.dur_column, self.event_column)
+                rsf, Xt, y, X_test, y_test, features = \
+                    self.client.calculate_local_rsf(self.data, self.data_test, self.dur_column, self.event_column)
 
                 self.X = Xt
                 self.y = y
