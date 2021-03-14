@@ -55,6 +55,8 @@ class AppLogic:
         self.cindex_on_global_model = None
         self.feature_importance_on_global_model = None
         self.global_c_index = None
+        self.concordant_pairs = None
+        self.global_c_index_concordant_pairs  = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
@@ -100,16 +102,20 @@ class AppLogic:
         try:
             print("[IO]       Write results to output folder:")
             #write_results_for_local_model()
-            file_write = open(self.OUTPUT_DIR + '/evaluation_result.txt', 'x')
-            file_write.write("Evaluation Results: ")
-            file_write.write("\n\nc_index calculated on the test data from this side:\n")
-            file_write.write(str(self.cindex_on_global_model))
+            file_write = open(self.OUTPUT_DIR + '/evaluation_result.csv', 'x')
+            #file_write.write("Evaluation Results\n")
+            file_write.write("cindex_on_global_model, global_c_index, global_c_index_concordant_pairs\n")
+            file_write.write(str(self.cindex_on_global_model) + "," + str(self.global_c_index)
+                             + "," + str(self.global_c_index_concordant_pairs))
 
             #file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
             #file_write.write(str(self.feature_importance_on_global_model))
 
-            file_write.write("\n\nglobal cindex:\n")
-            file_write.write(str(self.global_c_index))
+            #file_write.write("\nglobal_c_index:, ")
+            #file_write.write(str(self.global_c_index))
+
+            #file_write.write("\nglobal_c_index:, ")
+            #file_write.write(str(self.global_c_index))
 
             #if self.coordinator:
             #    global_cindex = self.global_c_index
@@ -183,7 +189,7 @@ class AppLogic:
             if state == state_local_computation:
                 print("[CLIENT] Perform local computation")
                 self.progress = 'local computation'
-                rsf, Xt, y, X_test, y_test, features = \
+                rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
                     self.client.calculate_local_rsf(self.data, self.data_test, self.dur_column, self.event_column)
 
                 self.X = Xt
@@ -191,7 +197,7 @@ class AppLogic:
                 self.X_test = X_test
                 self.y_test = y_test
                 self.features = features
-
+                self.concordant_pairs = concordant_pairs
                 data_to_send = jsonpickle.encode(rsf)
 
                 if self.coordinator:
@@ -224,15 +230,16 @@ class AppLogic:
                     print(type(self.global_rsf))
                     global_rsf_pickled = jsonpickle.encode(self.global_rsf)
                     print('could pickle ')
-                    ev_result = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test, self.y_test, self.features)
+                    ev_result = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test, self.y_test, self.features, self.concordant_pairs)
 
                 if self.client:
                     print('[STATUS]   evaluate global model on local test data CLIENT')
                     global_rsf_pickled = jsonpickle.encode(self.global_rsf)
                     ev_result= self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
-                                                                                 self.y_test, self.features)
+                                                                                 self.y_test, self.features, self.concordant_pairs)
 
-                self.cindex_on_global_model = ev_result[0]
+                #self.cindex_on_global_model = ev_result[0]
+                self.cindex_on_global_model = ev_result[0][0]
                 self.feature_importance_on_global_model = ev_result[1]
 
                 #data_to_send = jsonpickle.encode(ev_result)
@@ -285,15 +292,23 @@ class AppLogic:
                     #local_c_of_all_clients = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     local_ev_of_all_clients = [pickle.loads(client_data) for client_data in self.data_incoming]
                     local_c_of_all_clients = []
+                    tuple_c_conc = []
                     for i in local_ev_of_all_clients:
-                        local_c_of_all_clients.append(i[0])
+                        local_c_of_all_clients.append(i[0][0])
+                        if i[0][1] != 0:
+                            tuple_c_conc.append(i[0])
+                        else:
+                            print("we are not working with this client for evaluation! test set to small!")
                     print("2")
                     print("local of all clients: " + str(local_c_of_all_clients))
                     self.data_incoming = []
                     print("3")
                     aggregated_c = self.client.calculate_global_c_index(local_c_of_all_clients)
+                    aggregated_c_with_conc = self.client.calculate_global_c_index_with_concordant_pairs(tuple_c_conc)
+                    print('[IMPORTANT!!!!!!!!!!!!!!!!] the aggregated with conc: ' + str(aggregated_c_with_conc))
                     print("4")
                     self.global_c_index = aggregated_c
+                    self.global_c_index_concordant_pairs = aggregated_c_with_conc
                     # self.client.set_coefs(aggregated_beta)
                     data_to_broadcast = jsonpickle.encode(aggregated_c)
                     self.data_outgoing = data_to_broadcast

@@ -56,19 +56,31 @@ class Client:
 
             print("[ALGO]     local rsf: " + str(rsf))
 
-            self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
-            # evaluation_on_local_model(rsf, Xt, y, X_test, y_test, y_train)
-            return rsf, Xt, y, X_test, y_test, features
+            concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
 
-    def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names):
+            #TODO: really random, think about number that makes sense
+            if concordant_pairs > 20:
+                print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
+                return rsf, Xt, y, X_test, y_test, features, concordant_pairs
+            else:
+                print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
+                rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
+                    self.handle_to_small_test_set(data, data_test, duration_col, event_col)
+                return rsf, Xt, y, X_test, y_test, features, concordant_pairs
+
+    def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs):
         try:
-            global_rsf = jsonpickle.decode(global_rsf_pickled)
-            cindex = self.calculate_cindex(global_rsf, X_test, y_test)
-            feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test,
-                                                                                feature_names)
-            # feature_importance_as_dataframe = pd.DataFrame(['empty'], columns = ['Empty'])
-            # brier_score = calculate_integrated_brier_score(global_rsf, Xt, y)
-            return cindex, feature_importance_as_dataframe
+            if concordant_pairs != 0:
+                global_rsf = jsonpickle.decode(global_rsf_pickled)
+                cindex = self.calculate_cindex(global_rsf, X_test, y_test)
+                feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test,
+                                                                                    feature_names)
+
+                # feature_importance_as_dataframe = pd.DataFrame(['empty'], columns = ['Empty'])
+                # brier_score = calculate_integrated_brier_score(global_rsf, Xt, y)
+                return (cindex, concordant_pairs), feature_importance_as_dataframe
+            else:
+                return (0, 0), None
 
         except Exception as e:
             print('[ALGO]    evaluate_global_model_with_local_test_data!', e)
@@ -102,6 +114,36 @@ class Client:
         print("[TEST C-INDEX] local cindex from prediction: " + str(cindex))
         print("[TEST C-INDEX] concordant pairs: " + str(concordant))
         print("[TEST C-INDEX] discordant pairs: " + str(discordant))
+        return concordant
+
+    def handle_to_small_test_set(self, data, data_test, duration_col, event_col):
+        print("[INFO!!!!] we are handling a too small test set")
+        concat_data = [data, data_test]
+        new_training = pd.concat(concat_data)
+        Xt, y, features = bring_data_to_right_format(new_training, event_col, duration_col)
+        X_test, y_test, features = bring_data_to_right_format(data_test, event_col, duration_col)
+        rsf = RandomSurvivalForest(n_estimators=1000,
+                                   min_samples_split=10,
+                                   min_samples_leaf=15,
+                                   max_features="sqrt",
+                                   n_jobs=-1,
+                                   oob_score=True
+                                   )
+        rsf.fit(Xt, y)
+
+        print("[ALGO]     local rsf: " + str(rsf))
+        return rsf, Xt, y, X_test, y_test, features, 0
+
+
+
+
+
+
+
+
+
+
+
 
 
 class Coordinator(Client):
@@ -138,6 +180,14 @@ class Coordinator(Client):
         print("[ALGO]     global cindex: " + str(mean_c_index))
         return mean_c_index
 
+    def calculate_global_c_index_with_concordant_pairs(self, all_cindeces_and_con_pairs):
+        all_conc = sum([i[1] for i in all_cindeces_and_con_pairs])
+        con_mul_c = sum([i[1]*i[0] for i in all_cindeces_and_con_pairs])
+        result = con_mul_c/all_conc
+        print("[TEST C-INDEX WITH CONC] all_conc = " + str(all_conc))
+        print("[TEST C-INDEX WITH CONC] con_mul_c = " + str(con_mul_c))
+        print("[TEST C-INDEX WITH CONC] result = " + str(result))
+        return result
 
 def bring_data_to_right_format(data, event, time):
     # read data and reformat so sckit-survival can work with it
