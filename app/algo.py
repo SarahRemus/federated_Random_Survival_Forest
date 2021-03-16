@@ -19,7 +19,7 @@ class Client:
     def set_global_rsf(self, global_rsf):
         self.global_rsf_ = global_rsf[0]
 
-    def calculate_local_rsf(self, data, data_test, duration_col, event_col):
+    def calculate_local_rsf(self, data, data_test, duration_col, event_col, random_state):
         """
         Calculate the local rsf of a client
         :return: the local rsf
@@ -48,6 +48,7 @@ class Client:
                                        min_samples_leaf=15,
                                        max_features="sqrt",
                                        n_jobs=-1,
+                                       random_state=random_state,
                                        oob_score=True
                                        )
             rsf.fit(Xt, y)
@@ -57,19 +58,23 @@ class Client:
             print("[ALGO]     local rsf: " + str(rsf))
 
             concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
+            actual_concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
+            train_samples = len(Xt)
+            test_samples = len(X_test)
 
             #TODO: really random, think about number that makes sense
             if concordant_pairs > 20:
                 print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
-                return rsf, Xt, y, X_test, y_test, features, concordant_pairs
+                return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
             else:
                 print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
                 rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
-                    self.handle_to_small_test_set(data, data_test, duration_col, event_col)
-                return rsf, Xt, y, X_test, y_test, features, concordant_pairs
+                    self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
+                return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
 
     def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs):
         try:
+            print("[EVALUATION!!!] CONCORDANT PAIRS: "+ str(concordant_pairs))
             if concordant_pairs != 0:
                 global_rsf = jsonpickle.decode(global_rsf_pickled)
                 cindex = self.calculate_cindex(global_rsf, X_test, y_test)
@@ -116,7 +121,7 @@ class Client:
         print("[TEST C-INDEX] discordant pairs: " + str(discordant))
         return concordant
 
-    def handle_to_small_test_set(self, data, data_test, duration_col, event_col):
+    def handle_to_small_test_set(self, data, data_test, duration_col, event_col, random_state):
         print("[INFO!!!!] we are handling a too small test set")
         concat_data = [data, data_test]
         new_training = pd.concat(concat_data)
@@ -127,6 +132,7 @@ class Client:
                                    min_samples_leaf=15,
                                    max_features="sqrt",
                                    n_jobs=-1,
+                                   random_state = random_state,
                                    oob_score=True
                                    )
         rsf.fit(Xt, y)
@@ -174,6 +180,8 @@ class Coordinator(Client):
         print('[ALGO]     Calculate Global c-index')
 
         print(f'[ALGO]     all c-indeces: {all_cindeces}')
+
+        all_cindeces.remove(0)
 
         mean_c_index = statistics.mean(all_cindeces)
 

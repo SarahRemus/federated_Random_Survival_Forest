@@ -57,6 +57,10 @@ class AppLogic:
         self.global_c_index = None
         self.concordant_pairs = None
         self.global_c_index_concordant_pairs  = None
+        self.actual_concordant_pairs = None
+        self.train_samples = None
+        self.test_samples = None
+        self.random_state = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
@@ -67,6 +71,7 @@ class AppLogic:
             #self.sep = config['files']['sep']
             self.dur_column = config['parameters']['duration_col']
             self.event_column = config['parameters']['event_col']
+            self.random_state = config['parameters']['random_state']
 
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
         print(f'Read config file.', flush=True)
@@ -104,9 +109,13 @@ class AppLogic:
             #write_results_for_local_model()
             file_write = open(self.OUTPUT_DIR + '/evaluation_result.csv', 'x')
             #file_write.write("Evaluation Results\n")
-            file_write.write("cindex_on_global_model, global_c_index, global_c_index_concordant_pairs\n")
-            file_write.write(str(self.cindex_on_global_model) + "," + str(self.global_c_index)
-                             + "," + str(self.global_c_index_concordant_pairs))
+            file_write.write("cindex_on_global_model, global_c_index, global_c_index_concordant_pairs, training_samples, test_samples, concordant_pairs\n")
+            file_write.write(str(self.cindex_on_global_model)
+                             + "," + str(self.global_c_index)
+                             + "," + str(self.global_c_index_concordant_pairs)
+                             + "," + str(self.train_samples)
+                             + "," + str(self.test_samples)
+                             + "," + str(self.actual_concordant_pairs))
 
             #file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
             #file_write.write(str(self.feature_importance_on_global_model))
@@ -189,8 +198,8 @@ class AppLogic:
             if state == state_local_computation:
                 print("[CLIENT] Perform local computation")
                 self.progress = 'local computation'
-                rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
-                    self.client.calculate_local_rsf(self.data, self.data_test, self.dur_column, self.event_column)
+                rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples= \
+                    self.client.calculate_local_rsf(self.data, self.data_test, self.dur_column, self.event_column, self.random_state)
 
                 self.X = Xt
                 self.y = y
@@ -198,6 +207,9 @@ class AppLogic:
                 self.y_test = y_test
                 self.features = features
                 self.concordant_pairs = concordant_pairs
+                self.actual_concordant_pairs = actual_concordant_pairs
+                self.train_samples = train_samples
+                self.test_samples = test_samples
                 data_to_send = jsonpickle.encode(rsf)
 
                 if self.coordinator:
@@ -259,10 +271,18 @@ class AppLogic:
                 self.progress = 'wait for aggregation'
                 if len(self.data_incoming) > 0:
                     print("[CLIENT] Received EVALUATION aggregation data from coordinator.")
-                    global_cindex_here = jsonpickle.decode(self.data_incoming[0])
+                    diff_c_index = jsonpickle.decode(self.data_incoming[0])
+
+                    print("data_incomming " + str(diff_c_index))
+
+                    self.global_c_index = diff_c_index[0]
+                    self.global_c_index_concordant_pairs = diff_c_index[1]
+
+
+                    print("global cindex: " + str(self.global_c_index))
+                    print("global cindex concordant: " + str(self.global_c_index))
                     self.data_incoming = []
                     #self.client.set_global_rsf(global_rsf)
-                    self.global_cindex = global_cindex_here
                     state = state_writing_results
 
             # GLOBAL PART
@@ -310,7 +330,7 @@ class AppLogic:
                     self.global_c_index = aggregated_c
                     self.global_c_index_concordant_pairs = aggregated_c_with_conc
                     # self.client.set_coefs(aggregated_beta)
-                    data_to_broadcast = jsonpickle.encode(aggregated_c)
+                    data_to_broadcast = jsonpickle.encode([aggregated_c, aggregated_c_with_conc])
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
                     state = state_writing_results
