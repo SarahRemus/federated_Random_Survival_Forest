@@ -142,7 +142,7 @@ class AppLogic:
 
             # feature importance
             fi = self.feature_importance_on_global_model
-            fi.to_csv(self.OUTPUT_DIR + '/feature_importance.csv')
+            fi.to_csv(self.OUTPUT_DIR + '/feature_importance.csv', index=False)
 
         except Exception as e:
             print('[IO]      Could not write result file.', e)
@@ -342,15 +342,21 @@ class AppLogic:
                 #joblib.dump(self.client, self.OUTPUT_DIR + '/model.pkl')
                 #model = self.client
                 self.write_results(self.global_rsf)
-                state = state_finishing
+
+                if self.coordinator:
+                    self.data_incoming = ['DONE']
+                    state = state_finishing
+                else:
+                    self.data_outgoing = 'DONE'
+                    self.status_available = True
+                    break
 
             if state == state_finishing:
                 print("[CLIENT] Finishing")
                 self.progress = 'finishing...'
-                if self.coordinator:
-                    time.sleep(10)
-                self.status_finished = True
-                break
+                if len(self.data_incoming) == len(self.clients):
+                    self.status_finished = True
+                    break
 
             time.sleep(1)
 
