@@ -56,21 +56,27 @@ class Client:
 
 
             print("[ALGO]     local rsf: " + str(rsf))
-
-            concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
-            actual_concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
             train_samples = len(Xt)
             test_samples = len(X_test)
 
-            #TODO: really random, think about number that makes sense
-            if concordant_pairs > 20:
-                print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
-                return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+            if len(y_test) == 0:
+                print("[NOT JUSING TEST SET!] it is empty")
+                return rsf, Xt, y, X_test, y_test, features, 0, 0, train_samples, test_samples
             else:
-                print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
-                rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
-                    self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
-                return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
+                actual_concordant_pairs = concordant_pairs
+                print("CONCORDANT BEVOR ANYTHING:  " + str(concordant_pairs))
+
+
+                #TODO: really random, think about number that makes sense
+                if concordant_pairs > 20:
+                    print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
+                    return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                else:
+                    print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
+                    rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
+                        self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
+                    return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
 
     def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs):
         try:
@@ -106,6 +112,11 @@ class Client:
 
     def calculate_cindex_and_concordant_pairs(self, rsf, X_test, y_test):
         print("************************************************************************************")
+        print("X_test")
+        print(X_test)
+        print("y_test")
+        print(y_test)
+
         print("[TEST C-INDEX] local cindex: " + str(rsf.score(X_test, y_test)))
 
         prediction_for_test = rsf.predict(X_test)
@@ -114,12 +125,15 @@ class Client:
 
         event_time = [i[1] for i in y_test]
 
-        cindex, concordant, discordant, risk, time = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
+        result = []
 
-        print("[TEST C-INDEX] local cindex from prediction: " + str(cindex))
-        print("[TEST C-INDEX] concordant pairs: " + str(concordant))
-        print("[TEST C-INDEX] discordant pairs: " + str(discordant))
-        return concordant
+        #cindex, concordant, discordant, risk, time = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
+        result = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
+        print("[TEST C-INDEX] result: " + str(result))
+        print("[TEST C-INDEX] local cindex from prediction: " + str(result[0]))
+        print("[TEST C-INDEX] concordant pairs: " + str(result[1]))
+        print("[TEST C-INDEX] discordant pairs: " + str(result[2]))
+        return result[1]
 
     def handle_to_small_test_set(self, data, data_test, duration_col, event_col, random_state):
         print("[INFO!!!!] we are handling a too small test set")
@@ -181,7 +195,8 @@ class Coordinator(Client):
 
         print(f'[ALGO]     all c-indeces: {all_cindeces}')
 
-        all_cindeces.remove(0)
+        if 0 in all_cindeces:
+            all_cindeces.remove(0)
 
         mean_c_index = statistics.mean(all_cindeces)
 
@@ -191,11 +206,16 @@ class Coordinator(Client):
     def calculate_global_c_index_with_concordant_pairs(self, all_cindeces_and_con_pairs):
         all_conc = sum([i[1] for i in all_cindeces_and_con_pairs])
         con_mul_c = sum([i[1]*i[0] for i in all_cindeces_and_con_pairs])
-        result = con_mul_c/all_conc
-        print("[TEST C-INDEX WITH CONC] all_conc = " + str(all_conc))
-        print("[TEST C-INDEX WITH CONC] con_mul_c = " + str(con_mul_c))
-        print("[TEST C-INDEX WITH CONC] result = " + str(result))
-        return result
+
+        if all_conc != 0:
+            result = con_mul_c/all_conc
+            print("[TEST C-INDEX WITH CONC] all_conc = " + str(all_conc))
+            print("[TEST C-INDEX WITH CONC] con_mul_c = " + str(con_mul_c))
+            print("[TEST C-INDEX WITH CONC] result = " + str(result))
+            return result
+        else:
+            print("[C Index computation failed] all test sets where too small = " + str(all_conc))
+            return 0
 
 def bring_data_to_right_format(data, event, time):
     # read data and reformat so sckit-survival can work with it
