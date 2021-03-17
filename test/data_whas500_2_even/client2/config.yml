@@ -11,4 +11,5 @@ fc_rsf:
   parameters:
     duration_col: LENFOL # name of the column containing the time values
     event_col: FSTAT # name of the column containing the event values (1=event occurred, 0=censored)
+    random_state: 42
     #category_col: Stage_group # name of the column containing the categories that shall be analysed separately (e.g. treatment A vs. treatment B)
