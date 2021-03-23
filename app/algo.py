@@ -74,9 +74,11 @@ class Client:
                     return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
                 else:
                     print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
-                    rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
-                        self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
-                    return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                    #rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
+                        #self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
+                    #not merging
+                    #return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                    return rsf, Xt, y, X_test, y_test, features, 0, actual_concordant_pairs, train_samples, test_samples
 
     def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs):
         try:
