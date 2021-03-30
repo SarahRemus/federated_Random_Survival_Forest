@@ -61,6 +61,7 @@ class AppLogic:
         self.train_samples = None
         self.test_samples = None
         self.random_state = None
+        self.time = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
@@ -156,6 +157,9 @@ class AppLogic:
 
     def app_flow(self):
         # This method contains a state machine for the client and coordinator instance
+
+        self.time = time.time()
+        print("START TIME: " + str(self.time))
 
         # === States ===
         state_initializing = 1
@@ -358,7 +362,9 @@ class AppLogic:
                     self.status_finished = True
                     break
 
+            print("TIME ganz am Ende von TRUE: " + str((time.time()) - self.time))
             time.sleep(1)
 
+        print("TIME ganz am Ende von app flow: " + str((time.time())-self.time))
 
 logic = AppLogic()

@@ -63,22 +63,27 @@ class Client:
                 print("[NOT JUSING TEST SET!] it is empty")
                 return rsf, Xt, y, X_test, y_test, features, 0, 0, train_samples, test_samples
             else:
-                concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
-                actual_concordant_pairs = concordant_pairs
-                print("CONCORDANT BEVOR ANYTHING:  " + str(concordant_pairs))
+                try:
+                    concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
+                    actual_concordant_pairs = concordant_pairs
+                    print("CONCORDANT BEVOR ANYTHING:  " + str(concordant_pairs))
 
 
-                #TODO: really random, think about number that makes sense
-                if concordant_pairs > 20:
-                    print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
-                    return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
-                else:
-                    print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
-                    #rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
-                        #self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
-                    #not merging
-                    #return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
-                    return rsf, Xt, y, X_test, y_test, features, 0, actual_concordant_pairs, train_samples, test_samples
+                    #TODO: really random, think about number that makes sense
+                    if concordant_pairs > 20:
+                        print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
+                        return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                    else:
+                        print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
+                        #rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
+                            #self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
+                        #not merging
+                        #return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                        return rsf, Xt, y, X_test, y_test, features, 0, actual_concordant_pairs, train_samples, test_samples
+
+                except ValueError as e:
+                    print("ERROR: " + str(e))
+                    return rsf, Xt, y, X_test, y_test, features, 0,0, train_samples, test_samples
 
     def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs):
         try:
@@ -197,10 +202,17 @@ class Coordinator(Client):
 
         print(f'[ALGO]     all c-indeces: {all_cindeces}')
 
-        if 0 in all_cindeces:
-            all_cindeces.remove(0)
+        #if 0 in all_cindeces:
+        #    all_cindeces.remove(0)
+
+        all_cindeces = list(filter((0).__ne__, all_cindeces))
+
+        print(f'[ALGO]  after   all c-indeces: {all_cindeces}')
 
         mean_c_index = statistics.mean(all_cindeces)
+
+        mean_test = sum(all_cindeces)/len(all_cindeces)
+        print("[ALGO]     global cindex test: " + str(mean_test))
 
         print("[ALGO]     global cindex: " + str(mean_c_index))
         return mean_c_index
