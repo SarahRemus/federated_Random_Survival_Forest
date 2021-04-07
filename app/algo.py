@@ -106,7 +106,8 @@ class Client:
     def calculate_feature_importance(self, global_rsf, X_test, y_test, feature_names):
         print("[ALGO]     calculate feature importance")
         # TODO: needs more iterations but is currently taking to long
-        perm = PermutationImportance(global_rsf, n_iter=2)
+        perm = PermutationImportance(global_rsf, n_iter=2
+                                     )
         perm.fit(X_test, y_test)
         feature_importance_as_dataframe = eli5.explain_weights_df(perm, feature_names=feature_names)
         print("\n" + str(feature_importance_as_dataframe))

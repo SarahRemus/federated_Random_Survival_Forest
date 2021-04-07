@@ -4,11 +4,13 @@ import threading
 import time
 
 import joblib
+import json
 import jsonpickle
 import pandas as pd
 import yaml
 
 from app.algo import Coordinator, Client
+from app.app_state import *
 
 
 class AppLogic:
@@ -56,7 +58,7 @@ class AppLogic:
         self.feature_importance_on_global_model = None
         self.global_c_index = None
         self.concordant_pairs = None
-        self.global_c_index_concordant_pairs  = None
+        self.global_c_index_concordant_pairs = None
         self.actual_concordant_pairs = None
         self.train_samples = None
         self.test_samples = None
@@ -68,11 +70,14 @@ class AppLogic:
             config = yaml.load(f, Loader=yaml.FullLoader)['fc_rsf']
             self.input = config['files']['input']
             self.input_test = config['files']['input_test']
+            self.data = pd.read_csv(self.INPUT_DIR + "/" + self.input)
+            self.data_test = pd.read_csv(self.INPUT_DIR + "/" + self.input_test)
             print("CONFIG " + str(self.input_test))
-            #self.sep = config['files']['sep']
-            self.dur_column = config['parameters']['duration_col']
-            self.event_column = config['parameters']['event_col']
-            self.random_state = config['parameters']['random_state']
+            # self.sep = config['files']['sep']
+            if self.coordinator:
+                self.dur_column = config['parameters']['duration_col']
+                self.event_column = config['parameters']['event_col']
+                self.random_state = config['parameters']['random_state']
 
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
         print(f'Read config file.', flush=True)
@@ -98,7 +103,7 @@ class AppLogic:
         self.status_available = False
         return self.data_outgoing
 
-    def write_results(self, global_rsf):
+    def write_results(self):
         """
         Writes the results of global_rsf to the output_directory.
         :param global_rsf: Global rsf calculated from the local rsf of the clients
@@ -107,36 +112,13 @@ class AppLogic:
         """
         try:
             print("[IO]       Write results to output folder:")
-            #write_results_for_local_model()
             file_write = open(self.OUTPUT_DIR + '/evaluation_result.csv', 'x')
-            #file_write.write("Evaluation Results\n")
-            file_write.write("cindex_on_global_model, global_c_index, global_c_index_concordant_pairs, training_samples, test_samples, concordant_pairs\n")
-            file_write.write(str(self.cindex_on_global_model)
-                             + "," + str(self.global_c_index)
-                             + "," + str(self.global_c_index_concordant_pairs)
-                             + "," + str(self.train_samples)
-                             + "," + str(self.test_samples)
-                             + "," + str(self.actual_concordant_pairs))
-
-            #file_write.write("\n\nfeature importance calculated on the test data from this side:\n")
-            #file_write.write(str(self.feature_importance_on_global_model))
-
-            #file_write.write("\nglobal_c_index:, ")
-            #file_write.write(str(self.global_c_index))
-
-            #file_write.write("\nglobal_c_index:, ")
-            #file_write.write(str(self.global_c_index))
-
-            #if self.coordinator:
-            #    global_cindex = self.global_c_index
-            #    file_write.write(str(global_cindex))
-
-            #if self.client:
-            #    global_cindex_no_pickle = self.global_c_index
-            #    file_write.write(str(global_cindex_no_pickle))
+            file_write.write("cindex_on_global_model, global_c_index, global_c_index_concordant_pairs, "
+                             "training_samples, test_samples, concordant_pairs\n")
+            file_write.write(f"{self.cindex_on_global_model},{self.global_c_index},"
+                             f"{self.global_c_index_concordant_pairs},{self.train_samples},"
+                             f"{self.test_samples},{self.actual_concordant_pairs}")
             file_write.close()
-
-
 
             with open(self.OUTPUT_DIR + '/global_model.pickle', 'wb') as handle:
                 pickle.dump(self.global_rsf, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -159,19 +141,7 @@ class AppLogic:
         # This method contains a state machine for the client and coordinator instance
 
         self.time = time.time()
-        print("START TIME: " + str(self.time))
-
-        # === States ===
-        state_initializing = 1
-        state_read_input = 2
-        state_local_computation = 3
-        state_wait_for_aggregation = 4
-        state_global_aggregation = 5
-        state_evaluation_of_global_model = 6
-        state_waiting_for_evaluation = 7
-        state_aggregation_of_evaluation = 8
-        state_writing_results = 9
-        state_finishing = 10
+        print(f"START TIME: {self.time}")
 
         # Initial state
         state = state_initializing
@@ -191,19 +161,32 @@ class AppLogic:
             if state == state_read_input:
                 print('[CLIENT] Read input and config')
                 self.read_config()
-
-                numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-                self.data = pd.read_csv(self.INPUT_DIR + "/" + self.input)
-                self.data_test = pd.read_csv(self.INPUT_DIR + "/" + self.input_test)
-                print('state read input')
-                print(self.data_test.head())
-                state = state_local_computation
+                if self.coordinator:
+                    self.data_outgoing = {
+                        'event_column': self.event_column,
+                        'dur_column': self.dur_column,
+                        'random_state': self.random_state,
+                    }
+                    self.status_available = True
+                    state = state_local_computation
+                else:
+                    state = state_wait_coordinator_input
+            if state == state_wait_coordinator_input and not self.coordinator:
+                if self.data_incoming:
+                    print('[CLIENT] Read input from coordinator')
+                    config_data = json.loads(self.data_incoming[0])
+                    self.data_incoming = []
+                    self.event_column = config_data['event_column']
+                    self.dur_column = config_data['dur_column']
+                    self.random_state = config_data['random_state']
+                    state = state_local_computation
 
             if state == state_local_computation:
                 print("[CLIENT] Perform local computation")
                 self.progress = 'local computation'
-                rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples= \
-                    self.client.calculate_local_rsf(self.data, self.data_test, self.dur_column, self.event_column, self.random_state)
+                rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples = \
+                    self.client.calculate_local_rsf(self.data, self.data_test, self.dur_column, self.event_column,
+                                                    self.random_state)
 
                 self.X = Xt
                 self.y = y
@@ -219,7 +202,7 @@ class AppLogic:
                 if self.coordinator:
                     self.data_incoming.append(data_to_send)
                     print('data incomming coordinator')
-                    #print(self.data_incoming)
+                    # print(self.data_incoming)
                     state = state_global_aggregation
                 else:
                     self.data_outgoing = data_to_send
@@ -246,19 +229,22 @@ class AppLogic:
                     print(type(self.global_rsf))
                     global_rsf_pickled = jsonpickle.encode(self.global_rsf)
                     print('could pickle ')
-                    ev_result = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test, self.y_test, self.features, self.concordant_pairs)
+                    ev_result = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
+                                                                                       self.y_test, self.features,
+                                                                                       self.concordant_pairs)
 
                 if self.client:
                     print('[STATUS]   evaluate global model on local test data CLIENT')
                     global_rsf_pickled = jsonpickle.encode(self.global_rsf)
-                    ev_result= self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
-                                                                                 self.y_test, self.features, self.concordant_pairs)
+                    ev_result = self.client.evaluate_global_model_with_local_test_data(global_rsf_pickled, self.X_test,
+                                                                                       self.y_test, self.features,
+                                                                                       self.concordant_pairs)
 
-                #self.cindex_on_global_model = ev_result[0]
+                # self.cindex_on_global_model = ev_result[0]
                 self.cindex_on_global_model = ev_result[0][0]
                 self.feature_importance_on_global_model = ev_result[1]
 
-                #data_to_send = jsonpickle.encode(ev_result)
+                # data_to_send = jsonpickle.encode(ev_result)
                 data_to_send = pickle.dumps(ev_result)
 
                 if self.coordinator:
@@ -277,16 +263,15 @@ class AppLogic:
                     print("[CLIENT] Received EVALUATION aggregation data from coordinator.")
                     diff_c_index = jsonpickle.decode(self.data_incoming[0])
 
-                    print("data_incomming " + str(diff_c_index))
+                    print(f"data_incomming {diff_c_index}")
 
                     self.global_c_index = diff_c_index[0]
                     self.global_c_index_concordant_pairs = diff_c_index[1]
 
-
-                    print("global cindex: " + str(self.global_c_index))
-                    print("global cindex concordant: " + str(self.global_c_index))
+                    print(f"global cindex: {self.global_c_index}")
+                    print(f"global cindex concordant: {self.global_c_index_concordant_pairs}")
                     self.data_incoming = []
-                    #self.client.set_global_rsf(global_rsf)
+                    # self.client.set_global_rsf(global_rsf)
                     state = state_writing_results
 
             # GLOBAL PART
@@ -299,7 +284,7 @@ class AppLogic:
                     self.data_incoming = []
                     aggregated_rsf = self.client.calculate_global_rsf(local_rsf_of_all_clients)
                     self.global_rsf = aggregated_rsf
-                    #self.client.set_coefs(aggregated_beta)
+                    # self.client.set_coefs(aggregated_beta)
                     data_to_broadcast = jsonpickle.encode(aggregated_rsf)
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
@@ -311,9 +296,9 @@ class AppLogic:
                 self.progress = 'evaluating...'
                 if len(self.data_incoming) == len(self.clients):
                     print("1")
-                    #print(self.data_incoming)
-                    #TODO: something is wrong with the json pickle, should be solved with normal pickle
-                    #local_c_of_all_clients = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
+                    # print(self.data_incoming)
+                    # TODO: something is wrong with the json pickle, should be solved with normal pickle
+                    # local_c_of_all_clients = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     local_ev_of_all_clients = [pickle.loads(client_data) for client_data in self.data_incoming]
                     local_c_of_all_clients = []
                     tuple_c_conc = []
@@ -343,9 +328,9 @@ class AppLogic:
             if state == state_writing_results:
                 print("[CLIENT] Writing results")
                 # now you can save it to a file
-                #joblib.dump(self.client, self.OUTPUT_DIR + '/model.pkl')
-                #model = self.client
-                self.write_results(self.global_rsf)
+                # joblib.dump(self.client, self.OUTPUT_DIR + '/model.pkl')
+                # model = self.client
+                self.write_results()
 
                 if self.coordinator:
                     self.data_incoming = ['DONE']
@@ -365,6 +350,8 @@ class AppLogic:
             print("TIME ganz am Ende von TRUE: " + str((time.time()) - self.time))
             time.sleep(1)
 
-        print("TIME ganz am Ende von app flow: " + str((time.time())-self.time))
+        print("TIME ganz am Ende von app flow: " + str((time.time()) - self.time))
+
 
 logic = AppLogic()
+
