@@ -25,6 +25,7 @@ class Client:
         Calculate the local rsf of a client
         :return: the local rsf
         """
+        random_state = random_state
 
         if data is None:
             print('[ALGO] No data available')
@@ -36,7 +37,7 @@ class Client:
             X_test, y_test, features = bring_data_to_right_format(data_test, event_col, duration_col)
 
             if random_state == 'random':
-                random_state = random_state
+                random_state = None
 
             rsf = RandomSurvivalForest(n_estimators=n_estimators,
                                        min_samples_split=min_sample_split,
@@ -91,6 +92,8 @@ class Client:
         perm = PermutationImportance(global_rsf, n_iter=iterations_fi)
         perm.fit(X_test, y_test)
         feature_importance_as_dataframe = eli5.explain_weights_df(perm, feature_names=feature_names)
+        feature_importance_as_dataframe.pop("std")
+        print(f'Feature importance \n : {feature_importance_as_dataframe}')
         return feature_importance_as_dataframe
 
     def calculate_cindex(self, global_rsf, X_test, y_test):
