@@ -19,33 +19,28 @@ class Client:
     def set_global_rsf(self, global_rsf):
         self.global_rsf_ = global_rsf[0]
 
-    def calculate_local_rsf(self, data, data_test, duration_col, event_col, random_state):
+    def calculate_local_rsf(self, data, data_test, duration_col, event_col, n_estimators, min_sample_leafs,
+                            min_sample_split, min_concordant_pairs, merge_test_train, random_state):
         """
         Calculate the local rsf of a client
         :return: the local rsf
         """
 
         if data is None:
-            print('[ALGO]     No data available')
+            print('[ALGO] No data available')
             return None
         else:
-            # TODO: currently hard coded, should be input
-            print("[ALGO]     calculate local rsf")
-            print("data head")
-            print(data.head())
-            print("test data head")
-            print(data_test.head())
+            print("[ALGO] calculate local rsf")
             files = data
             Xt, y, features = bring_data_to_right_format(files, event_col, duration_col)
             X_test, y_test, features = bring_data_to_right_format(data_test, event_col, duration_col)
-            # TODO: remove random state later
-            # random_state = 20
 
-            # X_train, X_test, y_train, y_test = train_test_split(Xt, y, test_size=0.25)
+            if random_state == 'random':
+                random_state = random_state
 
-            rsf = RandomSurvivalForest(n_estimators=1000,
-                                       min_samples_split=10,
-                                       min_samples_leaf=15,
+            rsf = RandomSurvivalForest(n_estimators=n_estimators,
+                                       min_samples_split=min_sample_split,
+                                       min_samples_leaf=min_sample_leafs,
                                        max_features="sqrt",
                                        n_jobs=-1,
                                        random_state=random_state,
@@ -53,98 +48,65 @@ class Client:
                                        )
             rsf.fit(Xt, y)
 
-
-
-            print("[ALGO]     local rsf: " + str(rsf))
             train_samples = len(Xt)
             test_samples = len(X_test)
 
             if len(y_test) == 0:
-                print("[NOT JUSING TEST SET!] it is empty")
+                print("[ALGO] Test set is empty")
                 return rsf, Xt, y, X_test, y_test, features, 0, 0, train_samples, test_samples
             else:
                 try:
                     concordant_pairs = self.calculate_cindex_and_concordant_pairs(rsf, X_test, y_test)
                     actual_concordant_pairs = concordant_pairs
-                    print("CONCORDANT BEVOR ANYTHING:  " + str(concordant_pairs))
-
-
-                    #TODO: really random, think about number that makes sense
-                    if concordant_pairs > 20:
-                        print("[JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are more than 20")
+                    if concordant_pairs > min_concordant_pairs:
+                        print(f"[ALGO] using test set, concordant pairs: {concordant_pairs} are more than {min_concordant_pairs}")
                         return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
                     else:
-                        print("[NOT JUSING TEST SET!] concordant pairs: " + str(concordant_pairs) + " are less than 20")
-                        #rsf, Xt, y, X_test, y_test, features, concordant_pairs = \
-                            #self.handle_to_small_test_set(data, data_test, duration_col, event_col, random_state)
-                        #not merging
-                        #return rsf, Xt, y, X_test, y_test, features, concordant_pairs, actual_concordant_pairs, train_samples, test_samples
+                        print(f"[ALGO] not using concordant pairs: {concordant_pairs} are less than {min_concordant_pairs}")
+                        if merge_test_train:
+                            #TODO: still has to be implemented
+                            print('[ALGO] merge test and train')
                         return rsf, Xt, y, X_test, y_test, features, 0, actual_concordant_pairs, train_samples, test_samples
 
                 except ValueError as e:
                     print("ERROR: " + str(e))
                     return rsf, Xt, y, X_test, y_test, features, 0,0, train_samples, test_samples
 
-    def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs):
+    def evaluate_global_model_with_local_test_data(self, global_rsf_pickled, X_test, y_test, feature_names, concordant_pairs, iterations_fi):
         try:
-            print("[EVALUATION!!!] CONCORDANT PAIRS: "+ str(concordant_pairs))
             if concordant_pairs != 0:
                 global_rsf = jsonpickle.decode(global_rsf_pickled)
                 cindex = self.calculate_cindex(global_rsf, X_test, y_test)
                 feature_importance_as_dataframe = self.calculate_feature_importance(global_rsf, X_test, y_test,
-                                                                                    feature_names)
-
-                # feature_importance_as_dataframe = pd.DataFrame(['empty'], columns = ['Empty'])
-                # brier_score = calculate_integrated_brier_score(global_rsf, Xt, y)
+                                                                                    feature_names, iterations_fi)
                 return (cindex, concordant_pairs), feature_importance_as_dataframe
             else:
                 return (0, 0), None
 
         except Exception as e:
-            print('[ALGO]    evaluate_global_model_with_local_test_data!', e)
+            print('[ALGO] Error in evaluate_global_model_with_local_test_data!', e)
 
-    def calculate_feature_importance(self, global_rsf, X_test, y_test, feature_names):
-        print("[ALGO]     calculate feature importance")
-        # TODO: needs more iterations but is currently taking to long
-        perm = PermutationImportance(global_rsf, n_iter=2
-                                     )
+    def calculate_feature_importance(self, global_rsf, X_test, y_test, feature_names, iterations_fi):
+        print("[ALGO] calculate feature importance")
+        perm = PermutationImportance(global_rsf, n_iter=iterations_fi)
         perm.fit(X_test, y_test)
         feature_importance_as_dataframe = eli5.explain_weights_df(perm, feature_names=feature_names)
-        print("\n" + str(feature_importance_as_dataframe))
         return feature_importance_as_dataframe
 
     def calculate_cindex(self, global_rsf, X_test, y_test):
         cindex = global_rsf.score(X_test, y_test)
-        print("[ALGO]     cindex on global model with local test data: " + str(cindex))
+        print("[ALGO] c-index on global model with local test data: " + str(cindex))
         return cindex
 
     def calculate_cindex_and_concordant_pairs(self, rsf, X_test, y_test):
-        print("************************************************************************************")
-        print("X_test")
-        print(X_test)
-        print("y_test")
-        print(y_test)
-
-        print("[TEST C-INDEX] local cindex: " + str(rsf.score(X_test, y_test)))
-
         prediction_for_test = rsf.predict(X_test)
-
         event_indicator = [i[0] for i in y_test]
-
         event_time = [i[1] for i in y_test]
-
-        result = []
-
-        #cindex, concordant, discordant, risk, time = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
         result = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
-        print("[TEST C-INDEX] result: " + str(result))
-        print("[TEST C-INDEX] local cindex from prediction: " + str(result[0]))
-        print("[TEST C-INDEX] concordant pairs: " + str(result[1]))
-        print("[TEST C-INDEX] discordant pairs: " + str(result[2]))
         return result[1]
 
     def handle_to_small_test_set(self, data, data_test, duration_col, event_col, random_state):
-        print("[INFO!!!!] we are handling a too small test set")
+        print("[INFO] calculate local RSF on merged train and test set")
         concat_data = [data, data_test]
         new_training = pd.concat(concat_data)
         Xt, y, features = bring_data_to_right_format(new_training, event_col, duration_col)
@@ -158,8 +120,6 @@ class Client:
                                    oob_score=True
                                    )
         rsf.fit(Xt, y)
-
-        print("[ALGO]     local rsf: " + str(rsf))
         return rsf, Xt, y, X_test, y_test, features, 0
 
 
@@ -199,23 +159,10 @@ class Coordinator(Client):
         Calculates the global evaluation of the data of all clients.
         :return: None
         """
-        print('[ALGO]     Calculate Global c-index')
-
-        print(f'[ALGO]     all c-indeces: {all_cindeces}')
-
-        #if 0 in all_cindeces:
-        #    all_cindeces.remove(0)
-
+        print('[ALGO] Calculate Global c-index')
         all_cindeces = list(filter((0).__ne__, all_cindeces))
-
-        print(f'[ALGO]  after   all c-indeces: {all_cindeces}')
-
         mean_c_index = statistics.mean(all_cindeces)
-
         mean_test = sum(all_cindeces)/len(all_cindeces)
-        print("[ALGO]     global cindex test: " + str(mean_test))
-
-        print("[ALGO]     global cindex: " + str(mean_c_index))
         return mean_c_index
 
     def calculate_global_c_index_with_concordant_pairs(self, all_cindeces_and_con_pairs):
@@ -224,12 +171,9 @@ class Coordinator(Client):
 
         if all_conc != 0:
             result = con_mul_c/all_conc
-            print("[TEST C-INDEX WITH CONC] all_conc = " + str(all_conc))
-            print("[TEST C-INDEX WITH CONC] con_mul_c = " + str(con_mul_c))
-            print("[TEST C-INDEX WITH CONC] result = " + str(result))
             return result
         else:
-            print("[C Index computation failed] all test sets where too small = " + str(all_conc))
+            print("[ALGO] C Index computation failed, all test sets where too small = " + str(all_conc))
             return 0
 
 def bring_data_to_right_format(data, event, time):
