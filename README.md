@@ -1,2 +1,2 @@
-## Linear Regression FeatureCloud App
+## Random Survival Forest FeatureCloud App
 
