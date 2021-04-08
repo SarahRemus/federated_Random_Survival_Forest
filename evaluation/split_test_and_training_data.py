@@ -268,7 +268,6 @@ def split_2_uneven(train_set, test_set):
 
 
 def split_3_even(train_set, test_set):
-    # TODO: nicht ganz even wenn zahl nicht teilbar
     split_train_1 = math.floor(len(train_set) / 3)
     split_train_2 = 2 * split_train_1
 
@@ -290,7 +289,6 @@ def split_3_even(train_set, test_set):
     return [[train_1, test_1], [train_2, test_2], [train_3, test_3]]
 
 def split_3_uneven(train_set, test_set):
-    # TODO: nicht ganz even wenn zahl nicht teilbar
     split_train_1 = math.floor(0.2 * len(train_set))
     split_train_2 = math.floor(0.3 * len(train_set)) + split_train_1
 
@@ -312,7 +310,6 @@ def split_3_uneven(train_set, test_set):
 
 
 def split_5_even(train_set, test_set):
-    # TODO: nicht ganz even wenn zahl nicht teilbar
     split_train_1 = math.floor(len(train_set) / 5)
     split_train_2 = 2 * split_train_1
     split_train_3 = 3 * split_train_1
@@ -457,7 +454,6 @@ def split_5_uneven(train_set, test_set):
 
 
 def split_10_even(train_set, test_set):
-    # TODO: nicht ganz even wenn zahl nicht teilbar
     split_train_1 = math.floor(len(train_set) / 10)
     split_train_2 = 2 * split_train_1
     split_train_3 = 3 * split_train_1
@@ -547,7 +543,6 @@ def split_10_even(train_set, test_set):
     return result
 
 def split_10_uneven(train_set, test_set):
-    # TODO: nicht ganz even wenn zahl nicht teilbar
     split_train_1 = math.floor(0.02 * len(train_set))
     split_train_2 = math.floor(0.04 * len(train_set)) + split_train_1
     split_train_3 = math.floor(0.06 * len(train_set)) + split_train_2
