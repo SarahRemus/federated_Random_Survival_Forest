@@ -1,0 +1,14 @@
+fc_rsf:
+  files:
+    input: train_1_2_even.csv
+    input_test: test_1_2_even.csv
+  parameters:
+    time_column: time
+    event_column: cens
+    n_estimators_local: 1000
+    min_sample_leafes: 15
+    min_sample_split: 10
+    iterations_fi: 2
+    min_concordant_pairs: 20
+    random_state: random
+    merge_test_train: TRUE

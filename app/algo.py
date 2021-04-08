@@ -65,7 +65,9 @@ class Client:
                     else:
                         print(f"[ALGO] not using concordant pairs: {concordant_pairs} are less than {min_concordant_pairs}")
                         if merge_test_train:
-                            #TODO: still has to be implemented
+                            rsf, Xt, y, X_test, y_test, features, nix = self.handle_to_small_test_set\
+                                (data, data_test, duration_col, event_col, n_estimators,min_sample_leafs,
+                                 min_sample_split, random_state)
                             print('[ALGO] merge test and train')
                         return rsf, Xt, y, X_test, y_test, features, 0, actual_concordant_pairs, train_samples, test_samples
 
@@ -108,15 +110,16 @@ class Client:
         result = sksurv.metrics.concordance_index_censored(event_indicator, event_time, prediction_for_test)
         return result[1]
 
-    def handle_to_small_test_set(self, data, data_test, duration_col, event_col, random_state):
+    def handle_to_small_test_set(self,data, data_test, duration_col, event_col, n_estimators, min_sample_leafs,
+                            min_sample_split,random_state):
         print("[INFO] calculate local RSF on merged train and test set")
         concat_data = [data, data_test]
         new_training = pd.concat(concat_data)
         Xt, y, features = bring_data_to_right_format(new_training, event_col, duration_col)
         X_test, y_test, features = bring_data_to_right_format(data_test, event_col, duration_col)
-        rsf = RandomSurvivalForest(n_estimators=1000,
-                                   min_samples_split=10,
-                                   min_samples_leaf=15,
+        rsf = RandomSurvivalForest(n_estimators=n_estimators,
+                                   min_samples_split=min_sample_split,
+                                   min_samples_leaf=min_sample_leafs,
                                    max_features="sqrt",
                                    n_jobs=-1,
                                    random_state = random_state,

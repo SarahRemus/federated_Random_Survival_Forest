@@ -1,0 +1,4 @@
+fc_rsf:
+  files:
+    input: train_2_2_even.csv
+    input_test: test_2_2_even.csv
