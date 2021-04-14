@@ -17,6 +17,11 @@ from sklearn.model_selection import train_test_split
 from sksurv.ensemble import RandomSurvivalForest
 import os
 
+"""
+       This script parts a given data set into the input data for different clients, 
+       with different distributions and adds the needed config file.
+"""
+
 
 def start_computation(path_root, dataset, duration_col, event_col, random_state_split, random_state_forest):
     path_root = path_root + "forest_state_" + str(random_state_forest)
