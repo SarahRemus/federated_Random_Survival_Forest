@@ -127,7 +127,7 @@ class AppLogic:
         try:
             print("[IO] Write results to output folder:")
             file_write = open(self.OUTPUT_DIR + '/evaluation_result.csv', 'x')
-            file_write.write("cindex_on_global_model, global_c_index, global_c_index_concordant_pairs, "
+            file_write.write("cindex_on_global_model, global_c_index_mean, global_c_index_weigthed, "
                              "training_samples, test_samples, concordant_pairs\n")
             file_write.write(f"{self.cindex_on_global_model},{self.global_c_index},"
                              f"{self.global_c_index_concordant_pairs},{self.train_samples},"
@@ -380,11 +380,9 @@ class AppLogic:
 
             if state == state_wait_coordinator_input and not self.coordinator:
                 curr_state = self.do_wait_coordinator_input()
-                print(f'state_wait_coordinator_input {curr_state}')
                 if curr_state is not None:
-                    print('not none')
                     state = curr_state
-                    print(state)
+
 
             if state == state_local_computation:
                 curr_state = self.do_local_computation()
@@ -440,7 +438,7 @@ class AppLogic:
 
             time.sleep(1)
 
-        print("Computation time: " + str((time.time()) - self.time))
+
 
 
 logic = AppLogic()
